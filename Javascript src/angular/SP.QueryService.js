@@ -1,9 +1,9 @@
 (function(angular) {
 
     'use strict';
-    var app = angular.module("SP.QueryService", [])
+    angular.module("SP.QueryService", [])
 
-    app.value('appweburl', decodeURIComponent(
+    angular.module("SP.QueryService").value('appweburl', decodeURIComponent(
         getQueryStringParameter("SPAppWebUrl")));
 
     var executeQuery = function($http, $q, appweburl) {
@@ -14,8 +14,6 @@
     }
 
     executeQuery.prototype.searchJsom = function(queryText, queryTemplate, rowsperpage, rowlimit, startRow, graphQuery, graphRankingModel, rankingModelId) {
-        var deferred = this.$q.defer();
-
         var ctx = SP.ClientContext.get_current();
         var kwQuery = new Microsoft.SharePoint.Client.Search.Query.KeywordQuery(ctx);
         kwQuery.set_queryText(queryText);
@@ -44,16 +42,16 @@
         var executor = new Microsoft.SharePoint.Client.Search.Query.SearchExecutor(ctx);
         var results = executor.executeQuery(kwQuery);
 
-        ctx.executeQueryAsync(function() {
-            deferred.resolve(results.m_value.ResultTables[0]);
-        }, function(sender, args) {
-            deferred.reject(args.get_message());
+        return this.$q(function(resolve, reject) {
+            ctx.executeQueryAsync(function() {
+                resolve(results.m_value.ResultTables[0]);
+            }, function(sender, args) {
+                reject(args.get_message());
+            });
         });
-
-        return deferred.promise;
     }
 
-    executeQuery.prototype.getAppWebData = function(url, cacheResult) {
+    executeQuery.prototype.getAppWebData = function(url, cacheResult, additionalODataFilters) {
         var restQueryUrl = this.appweburl + url;
         if (url.indexOf('?') == -1) {
             restQueryUrl = restQueryUrl + "?";
@@ -61,7 +59,7 @@
             restQueryUrl = restQueryUrl + "&";
         }
         return this.$http({
-            url: restQueryUrl + "$top=500",
+            url: restQueryUrl + additionalODataFilters,
             method: 'GET',
             headers: { "Accept": "application/json" },
             cache: cacheResult
@@ -69,51 +67,52 @@
     }
 
     executeQuery.prototype.getTargetWebData = function(url, target) {
-        var deferred = this.$q.defer();
-
+        var self = this;
         var requestUrl = this.appweburl + "/_api/SP.AppContextSite(@target)" + url;
         if (url.indexOf('?') == -1) {
             requestUrl = requestUrl + "?";
         } else {
             requestUrl = requestUrl + "&";
         }
+        return self.$q(function(resolve, reject) {
+            self.executor.executeAsync({
+                url: requestUrl + "@target='" + target + "'",
+                method: 'GET',
+                headers: { "Accept": "application/json" },
+                success: function(data) {
+                    resolve(data);
+                },
+                error: function(xhr, a, s) {
+                    reject(xhr);
+                }
+            })
+        });
 
-        this.executor.executeAsync({
-            url: requestUrl + "@target='" + target + "'",
-            method: 'GET',
-            headers: { "Accept": "application/json" },
-            success: function(data) {
-                deferred.resolve(data);
-            },
-            error: function(xhr, a, s) {
-                deferred.reject(xhr);
-            }
-        })
-        return deferred.promise;
     }
+
     executeQuery.prototype.postContextInfo = function() {
-        var deferred = this.$q.defer();
-        this.executor.executeAsync({
-            url: this.appweburl +
-                "/_api/contextinfo",
-            method: "POST",
-            headers: {
-                "Accept": "application/json; odata=verbose",
-                "content-type": "application/json;odata=verbose"
-            },
-            success: function(data) {
-                deferred.resolve(data);
-            },
-            error: function(xhr, a, s) {
-                deferred.reject(xhr);
-            }
-        })
-        return deferred.promise;
+        var self = this;
+        return self.$q(function(resolve, reject) {
+            self.executor.executeAsync({
+                url: self.appweburl +
+                    "/_api/contextinfo",
+                method: "POST",
+                headers: {
+                    "Accept": "application/json; odata=verbose",
+                    "content-type": "application/json;odata=verbose"
+                },
+                success: function(data) {
+                    resolve(data);
+                },
+                error: function(xhr, a, s) {
+                    reject(xhr);
+                }
+            })
+        });
     }
-
 
     executeQuery.$inject = ["$http", "$q", "appweburl", ];
 
-    app.service('executeQuery', executeQuery);
+    angular.module("SP.QueryService").service('executeQueryService', executeQuery);
 
 })(window.angular)
